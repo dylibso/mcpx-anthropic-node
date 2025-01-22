@@ -1,5 +1,5 @@
 import { stdin as input, stdout as output } from 'node:process';
-import createDriver from '@dylibso/mcpx-claude'
+import createDriver from '@dylibso/mcpx-anthropic'
 import readline from 'node:readline/promises';
 import Anthropic from '@anthropic-ai/sdk'
 import pretty from 'pino-pretty'
@@ -17,12 +17,8 @@ async function main() {
   const mcpx = await createDriver({
     anthropic,
     logger,
-    sessionId: process.env.MCP_RUN_SESSION_ID
-  })
-
-  const messages = [{
-    role: 'system',
-    content: `
+    sessionId: process.env.MCP_RUN_SESSION_ID,
+    system: `
 You are a helpful AI assistant with access to various external tools and APIs. Your goal is to complete tasks thoroughly and autonomously by making full use of these tools. Here are your core operating principles:
 
 1. Take initiative - Don't wait for user permission to use tools. If a tool would help complete the task, use it immediately.
@@ -34,7 +30,9 @@ You are a helpful AI assistant with access to various external tools and APIs. Y
 
 Your responses should focus on results rather than asking questions. Only ask the user for clarification if the task itself is unclear or impossible with the tools available.
 `,
-  }];
+  })
+
+  const messages = [];
 
   console.log('Chat started. Type "exit" to quit.\n');
 
@@ -55,8 +53,13 @@ Your responses should focus on results rather than asking questions. Only ask th
       model: 'claude-3-5-sonnet-latest',
     });
 
-    let responseMessage = response.choices[0]?.message;
-    console.log("\nAssistant:", responseMessage.content);
+    if (Array.isArray(response.content)) {
+      response.content.map((xs) => {
+        console.log("\nAssistant:", xs[xs.type]);
+      })
+    } else {
+      console.log("\nAssistant:", response.content)
+    }
 
     //optionally write message log
     //fs.writeFileSync('./messages.json', JSON.stringify(messages, null, 4))

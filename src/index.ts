@@ -52,7 +52,10 @@ export class Driver {
         break
       }
 
-      messages.push(response)
+      messages.push({
+        role: response.role,
+        content: response.content,
+      })
 
       for (; messageIdx < messages.length; ++messageIdx) {
         this.#logger.info({ exchange: messages[messageIdx] }, 'message')
@@ -82,7 +85,11 @@ export class Driver {
           newMessage.content.push({
             tool_use_id: id,
             type: 'tool_result',
-            content: result.content as any,
+            content: Array.isArray(result.content)
+              ? result.content.map(xs => {
+                return { [xs.type]: xs[xs.type], type: xs.type }
+              }) as any
+              : result.content
           })
         } catch (err: any) {
           newMessage.content.push({
