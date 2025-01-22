@@ -1,0 +1,29 @@
+{
+  "name": "@dylibso/mcpx-claude",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "postbuild": "npm run build:types",
+    "build": "node esbuild.js",
+    "build:types": "tsc --emitDeclarationOnly --outFile ./dist/types.d.ts --project tsconfig.json",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "files": [
+    "dist"
+  ],
+  "types": "dist/types.d.ts",
+  "type": "module",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "devDependencies": {
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.35.0",
+    "@dylibso/mcpx": "^0.20.0",
+    "pino": "^9.6.0"
+  }
+}
