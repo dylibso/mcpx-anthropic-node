@@ -1,5 +1,5 @@
 {
-  "name": "@dylibso/mcpx-claude",
+  "name": "@dylibso/mcpx-anthropic",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
