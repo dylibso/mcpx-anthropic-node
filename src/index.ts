@@ -1,8 +1,8 @@
-import { ContentBlockParam, MessageCreateParamsNonStreaming, Tool } from '@anthropic-ai/sdk/resources'
+import { ContentBlockParam, MessageCreateParamsNonStreaming, Tool } from '@anthropic-ai/sdk/resources/index.js'
 import { Logger, Session, SessionOptions } from '@dylibso/mcpx'
 import { RequestOptions } from '@anthropic-ai/sdk/core'
 import Anthropic from '@anthropic-ai/sdk'
-import pino from 'pino'
+import { pino } from 'pino'
 
 export interface BaseDriverOptions {
   anthropic: Anthropic,

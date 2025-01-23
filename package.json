@@ -6,13 +6,13 @@
     "prepare": "npm run build",
     "build": "node esbuild.js",
     "postbuild": "npm run build:types",
-    "build:types": "tsc --emitDeclarationOnly --outFile ./dist/types.d.ts --project tsconfig.json",
+    "build:types": "tsc --emitDeclarationOnly --project ./tsconfig.json --declaration --outDir dist",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "files": [
     "dist"
   ],
-  "types": "dist/types.d.ts",
+  "types": "dist/index.d.ts",
   "type": "module",
   "keywords": [],
   "author": "",
