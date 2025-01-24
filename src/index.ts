@@ -48,14 +48,14 @@ export class Driver {
         messages,
       }, options)
 
-      if (response.stop_reason !== 'tool_use') {
-        break
-      }
-
       messages.push({
         role: response.role,
         content: response.content,
       })
+
+      if (response.stop_reason !== 'tool_use') {
+        break
+      }
 
       for (; messageIdx < messages.length; ++messageIdx) {
         this.#logger.info({ exchange: messages[messageIdx] }, 'message')
