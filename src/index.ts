@@ -53,10 +53,6 @@ export class Driver {
         content: response.content,
       })
 
-      if (response.stop_reason !== 'tool_use') {
-        break
-      }
-
       for (; messageIdx < messages.length; ++messageIdx) {
         this.#logger.info({ exchange: messages[messageIdx] }, 'message')
       }
@@ -99,6 +95,10 @@ export class Driver {
             is_error: true
           })
         }
+      }
+
+      if (response.stop_reason !== 'tool_use') {
+        break
       }
     } while (1)
     for (; messageIdx < messages.length - 1; ++messageIdx) {
