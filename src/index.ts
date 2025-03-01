@@ -98,6 +98,7 @@ export class Driver {
       }
 
       if (response.stop_reason !== 'tool_use') {
+        messages.pop()
         break
       }
     } while (1)
