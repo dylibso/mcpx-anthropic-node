@@ -102,10 +102,7 @@ export class Driver {
         break
       }
     } while (1)
-    for (; messageIdx < messages.length - 1; ++messageIdx) {
-      this.#logger.info({ exchange: messages[messageIdx] }, 'message')
-    }
-    this.#logger.info({ lastMessage: messages[messageIdx] }, 'final message')
+    this.#logger.info({ lastMessage: messages[messages.length - 1] }, 'final message')
     return response
   }
 }
