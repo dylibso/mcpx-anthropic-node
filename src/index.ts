@@ -88,6 +88,15 @@ export class Driver {
               : result.content
           })
         } catch (err: any) {
+          this.#logger.error(
+            {
+              tool_use_id: id,
+              name,
+              error: err.message,
+              stack: err.stack,
+            },
+            'tool use failed'
+          )
           newMessage.content.push({
             tool_use_id: id,
             type: 'tool_result',
