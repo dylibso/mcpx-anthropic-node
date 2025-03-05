@@ -41,6 +41,7 @@ export class Driver {
     let response: Awaited<ReturnType<Anthropic["messages"]["create"]>>
     let { messages, ...rest } = body
     let messageIdx = 1
+    let stopReason = null
     do {
       response = await this.#anthropic.messages.create({
         ...rest,
@@ -59,11 +60,13 @@ export class Driver {
 
       const newMessage = { role: 'user' as const, content: [] as ContentBlockParam[] }
       messages.push(newMessage)
+      let toolUseCount = 0
       for (const submessage of response.content) {
         if (submessage.type !== 'tool_use') {
           continue
         }
 
+        ++toolUseCount
         const { id, input, name } = submessage
         try {
           const abortcontroller = new AbortController()
@@ -106,12 +109,19 @@ export class Driver {
         }
       }
 
-      if (response.stop_reason !== 'tool_use') {
-        messages.pop()
-        break
+      if (response.stop_reason === 'tool_use') {
+        continue
       }
+
+      if (response.stop_reason === 'end_turn' && toolUseCount > 0) {
+        continue
+      }
+
+      stopReason = response.stop_reason
+      messages.pop()
+      break
     } while (1)
-    this.#logger.info({ lastMessage: messages[messages.length - 1] }, 'final message')
+    this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason }, 'final message')
     return response
   }
 }
