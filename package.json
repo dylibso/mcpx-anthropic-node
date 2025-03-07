@@ -1,6 +1,6 @@
 {
   "name": "@dylibso/mcpx-anthropic",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "main": "dist/index.js",
   "scripts": {
     "prepare": "npm run build",
@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.36.0",
-    "@dylibso/mcpx": "^0.23.0",
+    "@dylibso/mcpx": "^0.27.0",
     "pino": "^9.6.0"
   }
 }
