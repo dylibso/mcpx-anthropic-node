@@ -49,7 +49,6 @@ export class Driver {
     let response: Anthropic.Messages.Message
     let { messages, ...rest } = body
     let messageIdx = 1
-    let stopReason = null
     do {
       const result =
         await this.messageStep({
@@ -60,12 +59,10 @@ export class Driver {
       response = result.response
       messages = result.messages
       messageIdx = result.index
-      stopReason = result.stopReason
       if (result.done) {
         break
       }
     } while (1)
-    this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason }, 'final message')
     return response
   }
 
@@ -146,6 +143,7 @@ export class Driver {
     }
 
     messages.pop()
+    this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason: response.stop_reason }, 'final message')
     return { response,  messages, index: messageIdx, stopReason: response.stop_reason, done: true }
   }
 }
