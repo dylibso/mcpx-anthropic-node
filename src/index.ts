@@ -18,7 +18,6 @@ export interface McpxAnthropicStage {
   response: Anthropic.Messages.Message
   messages: Anthropic.Messages.MessageParam[]
   index: number
-  stopReason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | null,
   done: boolean
 }
 
@@ -135,16 +134,16 @@ export class Driver {
     }
 
     if (response.stop_reason === 'tool_use') {
-      return { response,  messages, index: messageIdx, stopReason: response.stop_reason, done: false }
+      return { response,  messages, index: messageIdx, done: false }
     }
 
     if (response.stop_reason === 'end_turn' && toolUseCount > 0) {
-      return { response,  messages, index: messageIdx, stopReason: response.stop_reason, done: false }
+      return { response,  messages, index: messageIdx, done: false }
     }
 
     messages.pop()
     this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason: response.stop_reason }, 'final message')
-    return { response,  messages, index: messageIdx, stopReason: response.stop_reason, done: true }
+    return { response,  messages, index: messageIdx, done: true }
   }
 }
 
