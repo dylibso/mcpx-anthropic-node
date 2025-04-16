@@ -1,7 +1,8 @@
-import { ContentBlockParam, MessageCreateParamsNonStreaming, Tool } from '@anthropic-ai/sdk/resources/index.js'
-import { Logger, Session, SessionOptions } from '@dylibso/mcpx'
-import { RequestOptions } from '@anthropic-ai/sdk/core'
-import Anthropic from '@anthropic-ai/sdk'
+import type { ContentBlockParam, MessageCreateParamsNonStreaming, Tool } from '@anthropic-ai/sdk/resources/index.js'
+import type { Logger, SessionOptions } from '@dylibso/mcpx'
+import { Session } from '@dylibso/mcpx'
+import type { RequestOptions } from '@anthropic-ai/sdk/core'
+import type { Anthropic, BadRequestError } from '@anthropic-ai/sdk'
 import { pino } from 'pino'
 
 export interface BaseDriverOptions {
@@ -67,11 +68,16 @@ export class Driver {
 
   async nextTurn(body: MessageCreateParamsNonStreaming, messageIdx: number, options: RequestOptions): Promise<McpxAnthropicStage> {
     let { messages, ...rest } = body
-    let response: Anthropic.Messages.Message = await this.#anthropic.messages.create({
-      ...rest,
-      ...(this.#tools.length ? { tools: this.#tools } : {}),
-      messages,
-    }, options)
+    let response: Anthropic.Messages.Message
+    try {
+      response = await this.#anthropic.messages.create({
+        ...rest,
+        ...(this.#tools.length ? { tools: this.#tools } : {}),
+        messages,
+      }, options)
+    } catch (err: any) {
+      throw ToolSchemaError.parse(err)
+    }
 
     messages.push({
       role: response.role,
@@ -177,4 +183,32 @@ export default async function createDriver(opts: DriverOptions) {
       }
     })
   })
+}
+
+export class ToolSchemaError extends Error {
+  static parse(err: any): any {
+    const error = err?.error?.error
+    const message = error?.message
+    if (error?.type === 'invalid_request_error' && message?.includes('input_schema')) {
+      if (message.startsWith("tools.")) {
+        const parts: string[] = message.split('.')
+        const index = parseInt(parts[1])
+        return new ToolSchemaError(err, index)
+      }
+    }
+    return err
+  }
+
+  public readonly originalError: any
+  public readonly toolIndex: number
+  constructor(error: any, toolIndex: number) {
+    super(error.message)
+
+    // Required for instanceof https://github.com/Microsoft/TypeScript-wiki/blob/master/Breaking-Changes.md#extending-built-ins-like-error-array-and-map-may-no-longer-work
+    Object.setPrototypeOf(this, ToolSchemaError.prototype);
+
+    this.originalError = error;
+    this.toolIndex = toolIndex
+  }
+
 }

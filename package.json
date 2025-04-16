@@ -7,7 +7,7 @@
     "build": "node esbuild.js",
     "postbuild": "npm run build:types",
     "build:types": "tsc --emitDeclarationOnly --project ./tsconfig.json --declaration --outDir dist",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "files": [
     "dist"
