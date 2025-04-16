@@ -50,7 +50,7 @@ export class Driver {
     let messageIdx = 1
     do {
       const result =
-        await this.messageStep({
+        await this.nextTurn({
           ...rest,
           ...(this.#tools.length ? { tools: this.#tools } : {}),
           messages,
@@ -65,7 +65,7 @@ export class Driver {
     return response
   }
 
-  async messageStep(body: MessageCreateParamsNonStreaming, messageIdx: number, options: RequestOptions): Promise<McpxAnthropicStage> {
+  async nextTurn(body: MessageCreateParamsNonStreaming, messageIdx: number, options: RequestOptions): Promise<McpxAnthropicStage> {
     let { messages, ...rest } = body
     let response: Anthropic.Messages.Message = await this.#anthropic.messages.create({
       ...rest,
