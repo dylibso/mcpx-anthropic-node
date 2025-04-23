@@ -1,7 +1,8 @@
-import { ContentBlockParam, MessageCreateParamsNonStreaming, Tool } from '@anthropic-ai/sdk/resources/index.js'
-import { Logger, Session, SessionOptions } from '@dylibso/mcpx'
-import { RequestOptions } from '@anthropic-ai/sdk/core'
-import Anthropic from '@anthropic-ai/sdk'
+import type { ContentBlockParam, MessageCreateParamsNonStreaming, Tool } from '@anthropic-ai/sdk/resources/index.js'
+import type { Logger, SessionOptions } from '@dylibso/mcpx'
+import { Session } from '@dylibso/mcpx'
+import type { RequestOptions } from '@anthropic-ai/sdk/core'
+import type { Anthropic, BadRequestError } from '@anthropic-ai/sdk'
 import { pino } from 'pino'
 
 export interface BaseDriverOptions {
@@ -13,6 +14,13 @@ export type DriverOptions = (
   (BaseDriverOptions & { session: Session }) |
   (BaseDriverOptions & { sessionOptions?: SessionOptions, sessionId: string, profile?: string })
 )
+
+export interface McpxAnthropicStage {
+  response: Anthropic.Messages.Message
+  messages: Anthropic.Messages.MessageParam[]
+  index: number
+  done: boolean
+}
 
 /**
  * A Driver wrapping an Anthropic client and MCPX session.
@@ -38,91 +46,110 @@ export class Driver {
   }
 
   async createMessage(body: MessageCreateParamsNonStreaming, options: RequestOptions) {
-    let response: Awaited<ReturnType<Anthropic["messages"]["create"]>>
+    let response: Anthropic.Messages.Message
     let { messages, ...rest } = body
     let messageIdx = 1
-    let stopReason = null
     do {
+      const result =
+        await this.nextTurn({
+          ...rest,
+          ...(this.#tools.length ? { tools: this.#tools } : {}),
+          messages,
+        }, messageIdx, options)
+      response = result.response
+      messages = result.messages
+      messageIdx = result.index
+      if (result.done) {
+        break
+      }
+    } while (1)
+    return response
+  }
+
+  async nextTurn(body: MessageCreateParamsNonStreaming, messageIdx: number, options: RequestOptions): Promise<McpxAnthropicStage> {
+    let { messages, ...rest } = body
+    let response: Anthropic.Messages.Message
+    try {
       response = await this.#anthropic.messages.create({
         ...rest,
         ...(this.#tools.length ? { tools: this.#tools } : {}),
         messages,
       }, options)
+    } catch (err: any) {
+      throw ToolSchemaError.parse(err)
+    }
 
-      messages.push({
-        role: response.role,
-        content: response.content,
-      })
+    messages.push({
+      role: response.role,
+      content: response.content,
+    })
 
-      for (; messageIdx < messages.length; ++messageIdx) {
-        this.#logger.info({ exchange: messages[messageIdx] }, 'message')
+    for (; messageIdx < messages.length; ++messageIdx) {
+      this.#logger.info({ exchange: messages[messageIdx] }, 'message')
+    }
+
+    const newMessage = { role: 'user' as const, content: [] as ContentBlockParam[] }
+    messages.push(newMessage)
+    let toolUseCount = 0
+    for (const submessage of response.content) {
+      if (submessage.type !== 'tool_use') {
+        continue
       }
 
-      const newMessage = { role: 'user' as const, content: [] as ContentBlockParam[] }
-      messages.push(newMessage)
-      let toolUseCount = 0
-      for (const submessage of response.content) {
-        if (submessage.type !== 'tool_use') {
-          continue
-        }
-
-        ++toolUseCount
-        const { id, input, name } = submessage
-        try {
-          const abortcontroller = new AbortController()
-          const result = await this.#session.handleCallTool(
-            {
-              method: 'tools/call',
-              params: {
-                name,
-                arguments: input as any
-              },
-            },
-            { signal: abortcontroller.signal }
-          )
-
-          newMessage.content.push({
-            tool_use_id: id,
-            type: 'tool_result',
-            content: Array.isArray(result.content)
-              ? result.content.map(xs => {
-                return { [xs.type]: xs[xs.type], type: xs.type }
-              }) as any
-              : result.content
-          })
-        } catch (err: any) {
-          this.#logger.error(
-            {
-              tool_use_id: id,
+      ++toolUseCount
+      const { id, input, name } = submessage
+      try {
+        const abortcontroller = new AbortController()
+        const result = await this.#session.handleCallTool(
+          {
+            method: 'tools/call',
+            params: {
               name,
-              error: err.message,
-              stack: err.stack,
+              arguments: input as any
             },
-            'tool use failed'
-          )
-          newMessage.content.push({
+          },
+          { signal: abortcontroller.signal }
+        )
+
+        newMessage.content.push({
+          tool_use_id: id,
+          type: 'tool_result',
+          content: Array.isArray(result.content)
+            ? result.content.map(xs => {
+              return { [xs.type]: xs[xs.type], type: xs.type }
+            }) as any
+            : result.content
+        })
+      } catch (err: any) {
+        this.#logger.error(
+          {
             tool_use_id: id,
-            type: 'tool_result',
-            content: err.toString(),
-            is_error: true
-          })
-        }
+            name,
+            error: err.message,
+            stack: err.stack,
+          },
+          'tool use failed'
+        )
+        newMessage.content.push({
+          tool_use_id: id,
+          type: 'tool_result',
+          content: err.toString(),
+          is_error: true
+        })
       }
+    }
 
-      if (response.stop_reason === 'tool_use') {
-        continue
-      }
+    if (response.stop_reason === 'tool_use') {
+      return { response,  messages, index: messageIdx, done: false }
+    }
 
-      if (response.stop_reason === 'end_turn' && toolUseCount > 0) {
-        continue
-      }
+    if (response.stop_reason === 'end_turn' && toolUseCount > 0) {
+      return { response,  messages, index: messageIdx, done: false }
+    }
 
-      stopReason = response.stop_reason
-      messages.pop()
-      break
-    } while (1)
-    this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason }, 'final message')
-    return response
+    messages.pop()
+    this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason: response.stop_reason }, 'final message')
+    return { response,  messages, index: messageIdx, done: true }
   }
 }
 
@@ -156,4 +183,29 @@ export default async function createDriver(opts: DriverOptions) {
       }
     })
   })
+}
+
+export class ToolSchemaError extends Error {
+  static parse(err: any): any {
+    const error = err?.error?.error
+    const message = error?.message
+    if (error?.type === 'invalid_request_error' && message?.includes('input_schema')) {
+      if (message.startsWith("tools.")) {
+        const parts: string[] = message.split('.')
+        const index = parseInt(parts[1])
+        return new ToolSchemaError(err, index)
+      }
+    }
+    return err
+  }
+
+  public readonly originalError: any
+  public readonly toolIndex: number
+  constructor(error: any, toolIndex: number) {
+    super(error.message)
+
+    this.originalError = error;
+    this.toolIndex = toolIndex
+  }
+
 }
