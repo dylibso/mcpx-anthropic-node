@@ -83,50 +83,42 @@ export class Driver {
   }
 
   async nextTurn(body: MessageCreateParamsNonStreaming, messageIdx: number, options: RequestOptions): Promise<McpxAnthropicTurn> {
+
     let { messages, ...rest } = body
-    let response: Anthropic.Messages.Message
-    try {
-      response = await this.#anthropic.messages.create({
-        ...rest,
-        ...(this.#tools.length ? { tools: this.#tools } : {}),
-        messages,
-      }, options)
-    } catch (err: any) {
-      throw ToolSchemaError.parse(err)
+
+    let stage: McpxAnthropicStage = {
+      messages,
+      index: messageIdx,
+      status: 'pending',
+      response: {} as Anthropic.Messages.Message,
     }
-
-    messages.push({
-      role: response.role,
-      content: response.content,
-    })
-
-    for (; messageIdx < messages.length; ++messageIdx) {
-      this.#logger.info({ exchange: messages[messageIdx] }, 'message')
+    stage = await this.next(stage, rest, options)
+    switch (stage.status) {
+      case 'ready':
+        return {
+          messages: stage.messages,
+          index: stage.index,
+          response: stage.response,
+          done: true,
+        }
+      case 'pending':
+        return {
+          messages: stage.messages,
+          index: stage.index,
+          response: stage.response,
+          done: false,
+        }
+      case 'input_wait':
+        do {
+          stage = await this.next(stage, rest, options)
+        } while (stage.status === 'input_wait')
+        return {
+          messages: stage.messages,
+          index: stage.index,
+          response: stage.response,
+          done: stage.status === 'ready',
+        }
     }
-
-    const newMessage = { role: 'user' as const, content: [] as ContentBlockParam[] }
-    messages.push(newMessage)
-    let toolUseCount = 0
-    for (const submessage of response.content) {
-      if (submessage.type !== 'tool_use') {
-        continue
-      }
-
-      ++toolUseCount
-      newMessage.content.push(await this.call(submessage))
-    }
-
-    if (response.stop_reason === 'tool_use') {
-      return { response,  messages, index: messageIdx, done: false }
-    }
-
-    if (response.stop_reason === 'end_turn' && toolUseCount > 0) {
-      return { response,  messages, index: messageIdx, done: false }
-    }
-
-    messages.pop()
-    this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason: response.stop_reason }, 'final message')
-    return { response,  messages, index: messageIdx, done: true }
   }
 
 
