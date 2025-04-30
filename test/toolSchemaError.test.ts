@@ -1,12 +1,13 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { ToolSchemaError } from '../src/index.ts';
+import type { Tool } from '@anthropic-ai/sdk/resources/index.js'
 
 describe('ToolSchemaError', () => {
   describe('parse', () => {
     test('should return original error if not a tool schema error', () => {
       const originalError = new Error('Not a schema error');
-      assert.strictEqual(ToolSchemaError.parse(originalError), originalError);
+      assert.strictEqual(ToolSchemaError.parse(originalError, []), originalError);
     });
 
     test('should return original error if error type is not invalid_request_error', () => {
@@ -18,7 +19,7 @@ describe('ToolSchemaError', () => {
           } 
         } 
       };
-      assert.strictEqual(ToolSchemaError.parse(originalError), originalError);
+      assert.strictEqual(ToolSchemaError.parse(originalError, []), originalError);
     });
 
     test('should return original error if message does not include input_schema', () => {
@@ -30,7 +31,7 @@ describe('ToolSchemaError', () => {
           } 
         } 
       };
-      assert.strictEqual(ToolSchemaError.parse(originalError), originalError);
+      assert.strictEqual(ToolSchemaError.parse(originalError, []), originalError);
     });
 
     test('should return original error if message does not start with tools.', () => {
@@ -42,7 +43,7 @@ describe('ToolSchemaError', () => {
           } 
         } 
       };
-      assert.strictEqual(ToolSchemaError.parse(originalError), originalError);
+      assert.strictEqual(ToolSchemaError.parse(originalError, []), originalError);
     });
 
     test('should return a ToolSchemaError when conditions are met', () => {
@@ -56,11 +57,16 @@ describe('ToolSchemaError', () => {
         message: 'Original error message'
       };
       
-      const result = ToolSchemaError.parse(originalError);
+      const result = ToolSchemaError.parse(originalError, [
+          { name: 'tool1' },
+          { name: 'tool2' },
+          { name: 'tool3' }
+        ] as Tool[]);
       
       assert.ok(result instanceof ToolSchemaError);
       assert.strictEqual(result.originalError, originalError);
       assert.strictEqual(result.toolIndex, 2);
+      assert.strictEqual(result.toolName, 'tool3');
     });
   });
 
@@ -69,17 +75,18 @@ describe('ToolSchemaError', () => {
       const originalError = new Error('Test error');
       const toolIndex = 3;
       
-      const error = new ToolSchemaError(originalError, toolIndex);
+      const error = new ToolSchemaError(originalError, toolIndex, 'tool4');
       
       assert.strictEqual(error.originalError, originalError);
       assert.strictEqual(error.toolIndex, toolIndex);
+      assert.strictEqual(error.toolName, 'tool4');
     });
 
     test('should use the error message from the original error', () => {
       const originalError = new Error('Test error message');
       const toolIndex = 1;
       
-      const error = new ToolSchemaError(originalError, toolIndex);
+      const error = new ToolSchemaError(originalError, toolIndex, 'MyTool');
       
       assert.strictEqual(error.message, originalError.message);
     });
@@ -88,7 +95,7 @@ describe('ToolSchemaError', () => {
       const originalError = new Error('Test error');
       const toolIndex = 0;
       
-      const error = new ToolSchemaError(originalError, toolIndex);
+      const error = new ToolSchemaError(originalError, toolIndex, 'MyTool');
       
       assert.ok(error instanceof ToolSchemaError);
       assert.ok(error instanceof Error);

@@ -177,7 +177,7 @@ export class Driver {
             messages,
           }, requestOptions)
         } catch (err: any) {
-          throw ToolSchemaError.parse(err)
+          throw ToolSchemaError.parse(err, this.#tools)
         }
 
         messages.push({
@@ -276,14 +276,14 @@ export default async function createDriver(opts: DriverOptions) {
 }
 
 export class ToolSchemaError extends Error {
-  static parse(err: any): any {
+  static parse(err: any, tools: Tool[]): any {
     const error = err?.error?.error
     const message = error?.message
     if (error?.type === 'invalid_request_error' && message?.includes('input_schema')) {
       if (message.startsWith("tools.")) {
         const parts: string[] = message.split('.')
         const index = parseInt(parts[1])
-        return new ToolSchemaError(err, index)
+        return new ToolSchemaError(err, index, tools[index].name)
       }
     }
     return err
@@ -291,11 +291,13 @@ export class ToolSchemaError extends Error {
 
   public readonly originalError: any
   public readonly toolIndex: number
-  constructor(error: any, toolIndex: number) {
+  public readonly toolName: string
+  constructor(error: any, toolIndex: number, toolName: string) {
     super(error.message)
 
     this.originalError = error;
     this.toolIndex = toolIndex
+    this.toolName = toolName
   }
 
 }
