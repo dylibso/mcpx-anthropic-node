@@ -293,8 +293,7 @@ export class ToolSchemaError extends Error {
   public readonly toolIndex: number
   public readonly toolName: string
   constructor(error: any, toolIndex: number, toolName: string) {
-    super(error.message)
-
+    super(`Invalid schema for tool #${toolIndex}: '${toolName}'\nCaused by: ${error.message}`)
     this.originalError = error;
     this.toolIndex = toolIndex
     this.toolName = toolName
