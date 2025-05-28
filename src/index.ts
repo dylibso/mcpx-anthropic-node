@@ -255,7 +255,8 @@ export class Driver {
         const nextTool = toolUseCount + 1
         const nextSubmessage = submessageIdx + 1
         if (nextSubmessage >= inputMessage.content.length) {
-          return { response, messages, index, status: 'pending', resultStatus }
+          const resultStatus_ = resultStatus === 'pending'? 'ready': resultStatus
+          return { response, messages, index, status: 'pending', resultStatus: resultStatus_ }
         } else {
           return { response, messages, index, status: 'input_wait', toolCallIndex: nextTool, submessageIdx: nextSubmessage, resultStatus }
         }
