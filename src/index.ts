@@ -133,7 +133,7 @@ export class Driver {
           messages: stage.messages,
           index: stage.index,
           response: stage.response,
-          done: stage.status === 'ready',
+          done: stage.status === 'ready' && stage.resultStatus === 'ready',
         }
     }
   }
@@ -187,11 +187,14 @@ export class Driver {
     switch (status) {
       case 'pending': {
         let response: Anthropic.Messages.Message
+        const tool_choice =
+          this.#forceTool && resultStatus === 'pending' ? { type: 'tool', name: this.#forceTool } : { type: 'auto' }
         try {
           response = await this.#anthropic.messages.create({
             ...config,
             ...(this.#tools.length ? { tools: this.#tools } : {}),
             messages,
+            tool_choice
           }, requestOptions)
         } catch (err: any) {
           throw ToolSchemaError.parse(err, this.#tools)
@@ -227,7 +230,13 @@ export class Driver {
 
         messages.pop()
         this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason: response.stop_reason }, 'final message')
-        return { response,  messages, index: messageIdx, status: 'ready', resultStatus }
+        let statusReady: any = 'ready'
+        let resultReady: any = 'ready'
+        if (resultStatus === 'wait') {
+          statusReady = 'pending'
+          resultReady = 'pending'
+        }
+        return { response,  messages, index: messageIdx, status: statusReady, resultStatus: resultReady }
       }
       case 'input_wait': {
         const toolUseCount = stage.toolCallIndex!
