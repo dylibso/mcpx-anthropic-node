@@ -13,6 +13,8 @@ import { pino } from 'pino'
 export interface BaseDriverOptions {
   anthropic: Anthropic,
   logger?: Logger,
+  forceTool?: string;
+  tools?: { name: string, description?: string, inputSchema: any }[]
 }
 
 export type DriverOptions = (
