@@ -106,6 +106,7 @@ export class Driver {
       messages,
       index: messageIdx,
       status: 'pending',
+      resultStatus: 'wait',
       response: {} as Anthropic.Messages.Message,
     }
     stage = await this.next(stage, rest, options)
@@ -182,7 +183,7 @@ export class Driver {
   }
 
   async next(stage: McpxAnthropicStage, config: any, requestOptions?: RequestOptions<unknown>): Promise<McpxAnthropicStage> {
-    const { response, messages, index, status, toolCallIndex } = stage
+    const { response, messages, index, status, toolCallIndex, resultStatus } = stage
     switch (status) {
       case 'pending': {
         let response: Anthropic.Messages.Message
@@ -211,22 +212,22 @@ export class Driver {
         let submessageIdx = 0;
         for (const submessage of response.content) {
           if (submessage.type === 'tool_use') {
-            return { response, messages, index: messageIdx, status: 'input_wait', toolCallIndex: toolUseCount, submessageIdx }
+            return { response, messages, index: messageIdx, status: 'input_wait', toolCallIndex: toolUseCount, submessageIdx, resultStatus }
           }
           submessageIdx++
         }
 
         if (response.stop_reason === 'tool_use') {
-          return { response,  messages, index: messageIdx, status: 'pending' }
+          return { response,  messages, index: messageIdx, status: 'pending', resultStatus }
         }
 
         if (response.stop_reason === 'end_turn' && toolCallIndex !== undefined && toolCallIndex > 0) {
-          return { response,  messages, index: messageIdx, status: 'pending' }
+          return { response,  messages, index: messageIdx, status: 'pending', resultStatus }
         }
 
         messages.pop()
         this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason: response.stop_reason }, 'final message')
-        return { response,  messages, index: messageIdx, status: 'ready' }
+        return { response,  messages, index: messageIdx, status: 'ready', resultStatus }
       }
       case 'input_wait': {
         const toolUseCount = stage.toolCallIndex!
@@ -245,9 +246,9 @@ export class Driver {
         const nextTool = toolUseCount + 1
         const nextSubmessage = submessageIdx + 1
         if (nextSubmessage >= inputMessage.content.length) {
-          return { response, messages, index, status: 'pending' }
+          return { response, messages, index, status: 'pending', resultStatus }
         } else {
-          return { response, messages, index, status: 'input_wait', toolCallIndex: nextTool, submessageIdx: nextSubmessage }
+          return { response, messages, index, status: 'input_wait', toolCallIndex: nextTool, submessageIdx: nextSubmessage, resultStatus }
         }
 
       }
