@@ -30,6 +30,16 @@ export interface McpxAnthropicTurn {
   done: boolean
 }
 
+// Note: valid states are:
+//
+// |   status   | resultStatus |  notes
+// |------------|--------------|-------------------
+// | ready      |   ready      | done
+// | pending    |   wait       | normal processing
+// | pending    |   pending    | normal processing done, processing the result
+// | input_wait |   wait       | normal processing
+// | input_wait |   pending    | normal processing done, processing the result
+//
 export interface McpxAnthropicStage {
   response: Anthropic.Messages.Message
   messages: Anthropic.Messages.MessageParam[]
@@ -37,6 +47,7 @@ export interface McpxAnthropicStage {
   toolCallIndex?: number
   submessageIdx?: number
   status: 'ready' | 'pending' | 'input_wait'
+  resultStatus: 'pending' | 'ready' | 'wait'
 }
 
 
@@ -51,16 +62,19 @@ export class Driver {
   #logger: Logger
   #session: Session
   #tools: Tool[]
+  #forceTool?: string
   constructor(opts: {
     anthropic: Anthropic,
     logger: Logger,
     session: Session,
-    tools: Tool[]
+    tools: Tool[],
+    forceTool?: string
   }) {
     this.#anthropic = opts.anthropic
     this.#logger = opts.logger
     this.#session = opts.session
     this.#tools = opts.tools
+    this.#forceTool = opts.forceTool
   }
 
   async createMessage(body: MessageCreateParamsNonStreaming, options: RequestOptions) {
@@ -260,7 +274,13 @@ export default async function createDriver(opts: DriverOptions) {
       : opts.session
   )
 
-  const { tools: mcpTools } = await session.handleListTools({} as any, {} as any)
+  let mcpTools: any[]
+  if (Array.isArray(opts.tools)) {
+    mcpTools = opts.tools
+  } else {
+    const tools = await session.handleListTools({} as any, {} as any)
+    mcpTools = tools.tools
+  }
 
   return new Driver({
     anthropic,
@@ -273,7 +293,8 @@ export default async function createDriver(opts: DriverOptions) {
         name: tool.name,
         description: tool.description,
       }
-    })
+    }),
+    forceTool: opts.forceTool,
   })
 }
 
