@@ -30,16 +30,6 @@ export interface McpxAnthropicTurn {
   done: boolean
 }
 
-// Note: valid states are:
-//
-// |   status   | resultStatus |  notes
-// |------------|--------------|-------------------
-// | ready      |   ready      | done
-// | pending    |   wait       | normal processing
-// | pending    |   pending    | normal processing done, processing the result
-// | input_wait |   wait       | normal processing
-// | input_wait |   pending    | normal processing done, processing the result
-//
 export interface McpxAnthropicStage {
   response: Anthropic.Messages.Message
   messages: Anthropic.Messages.MessageParam[]
@@ -47,7 +37,6 @@ export interface McpxAnthropicStage {
   toolCallIndex?: number
   submessageIdx?: number
   status: 'ready' | 'pending' | 'input_wait'
-  resultStatus: 'pending' | 'ready' | 'wait'
 }
 
 
@@ -62,7 +51,6 @@ export class Driver {
   #logger: Logger
   #session: Session
   #tools: Tool[]
-  #forceTool?: string
   constructor(opts: {
     anthropic: Anthropic,
     logger: Logger,
@@ -74,7 +62,6 @@ export class Driver {
     this.#logger = opts.logger
     this.#session = opts.session
     this.#tools = opts.tools
-    this.#forceTool = opts.forceTool
   }
 
   async createMessage(body: MessageCreateParamsNonStreaming, options: RequestOptions) {
@@ -106,7 +93,6 @@ export class Driver {
       messages,
       index: messageIdx,
       status: 'pending',
-      resultStatus: 'wait',
       response: {} as Anthropic.Messages.Message,
     }
     stage = await this.next(stage, rest, options)
@@ -133,7 +119,7 @@ export class Driver {
           messages: stage.messages,
           index: stage.index,
           response: stage.response,
-          done: stage.status === 'ready' && stage.resultStatus === 'ready',
+          done: stage.status === 'ready',
         }
     }
   }
@@ -183,18 +169,20 @@ export class Driver {
   }
 
   async next(stage: McpxAnthropicStage, config: any, requestOptions?: RequestOptions<unknown>): Promise<McpxAnthropicStage> {
-    const { response, messages, index, status, toolCallIndex, resultStatus } = stage
+    const { response, messages, index, status, toolCallIndex } = stage
     switch (status) {
       case 'pending': {
-        let response: Anthropic.Messages.Message
+        const tools = config.tools?.map(mcpxToolToAnthropic) || this.#tools
         const tool_choice =
-          this.#forceTool && resultStatus === 'pending' ? { type: 'tool', name: this.#forceTool } : { type: 'auto' }
+          config.tool_choice ? { type: 'tool', name: config.tool_choice } : { type: 'auto' }
+
+        let response: Anthropic.Messages.Message
         try {
           response = await this.#anthropic.messages.create({
             ...config,
-            ...(this.#tools.length ? { tools: this.#tools } : {}),
+            tools,
+            tool_choice,
             messages,
-            tool_choice
           }, requestOptions)
         } catch (err: any) {
           throw ToolSchemaError.parse(err, this.#tools)
@@ -215,28 +203,22 @@ export class Driver {
         let submessageIdx = 0;
         for (const submessage of response.content) {
           if (submessage.type === 'tool_use') {
-            return { response, messages, index: messageIdx, status: 'input_wait', toolCallIndex: toolUseCount, submessageIdx, resultStatus }
+            return { response, messages, index: messageIdx, status: 'input_wait', toolCallIndex: toolUseCount, submessageIdx }
           }
           submessageIdx++
         }
 
         if (response.stop_reason === 'tool_use') {
-          return { response,  messages, index: messageIdx, status: 'pending', resultStatus }
+          return { response,  messages, index: messageIdx, status: 'pending' }
         }
 
         if (response.stop_reason === 'end_turn' && toolCallIndex !== undefined && toolCallIndex > 0) {
-          return { response,  messages, index: messageIdx, status: 'pending', resultStatus }
+          return { response,  messages, index: messageIdx, status: 'pending' }
         }
 
         messages.pop()
         this.#logger.info({ lastMessage: messages[messages.length - 1], stopReason: response.stop_reason }, 'final message')
-        let statusReady: any = 'ready'
-        let resultReady: any = 'ready'
-        if (resultStatus === 'wait') {
-          statusReady = 'pending'
-          resultReady = 'pending'
-        }
-        return { response,  messages, index: messageIdx, status: statusReady, resultStatus: resultReady }
+        return { response,  messages, index: messageIdx, status: 'ready' }
       }
       case 'input_wait': {
         const toolUseCount = stage.toolCallIndex!
@@ -255,10 +237,9 @@ export class Driver {
         const nextTool = toolUseCount + 1
         const nextSubmessage = submessageIdx + 1
         if (nextSubmessage >= inputMessage.content.length) {
-          const resultStatus_ = resultStatus === 'pending'? 'ready': resultStatus
-          return { response, messages, index, status: 'pending', resultStatus: resultStatus_ }
+          return { response, messages, index, status: 'pending' }
         } else {
-          return { response, messages, index, status: 'input_wait', toolCallIndex: nextTool, submessageIdx: nextSubmessage, resultStatus }
+          return { response, messages, index, status: 'input_wait', toolCallIndex: nextTool, submessageIdx: nextSubmessage }
         }
 
       }
@@ -268,6 +249,15 @@ export class Driver {
   }
 
 
+}
+
+function mcpxToolToAnthropic(tool: any) {
+  return {
+    // So, you're saying you folks write a lot of Python, eh? Well, it certainly doesn't show.
+    input_schema: tool.inputSchema,
+    name: tool.name,
+    description: tool.description,
+  }
 }
 
 /** Create a driver using an Anthropic client and MCPX Session options. */
@@ -285,26 +275,13 @@ export default async function createDriver(opts: DriverOptions) {
       : opts.session
   )
 
-  let mcpTools: any[]
-  if (Array.isArray(opts.tools)) {
-    mcpTools = opts.tools
-  } else {
-    const tools = await session.handleListTools({} as any, {} as any)
-    mcpTools = tools.tools
-  }
+  const { tools: mcpTools } = await session.handleListTools({} as any, {} as any)
 
   return new Driver({
     anthropic,
     logger: logger || (session.logger as any) || pino({ level: 'silent' }),
     session,
-    tools: mcpTools.map(tool => {
-      return {
-        // So, you're saying you folks write a lot of Python, eh? Well, it certainly doesn't show.
-        input_schema: tool.inputSchema,
-        name: tool.name,
-        description: tool.description,
-      }
-    }),
+    tools: mcpTools.map(mcpxToolToAnthropic),
     forceTool: opts.forceTool,
   })
 }
