@@ -1,6 +1,6 @@
 {
   "name": "@dylibso/mcpx-anthropic",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "main": "dist/index.js",
   "scripts": {
     "prepare": "npm run build",
