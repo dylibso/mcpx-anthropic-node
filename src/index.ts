@@ -38,16 +38,6 @@ export interface McpxAnthropicStage {
 }
 
 
-function anthropicToolCallToMcpxToolCall(submessage: any): any {
-  return {
-    method: 'tools/call',
-    params: {
-      name: submessage.name,
-      arguments: submessage.input,
-    },
-  }
-}
-
 /**
  * A Driver wrapping an Anthropic client and MCPX session.
  *
@@ -132,16 +122,23 @@ export class Driver {
   }
 
 
-  private async call(convertedToolCall: any, toolCallId: string): Promise<ContentBlockParam> {
+  private async call(submessage: ToolUseBlock): Promise<ContentBlockParam> {
+    const { id, input, name } = submessage
     try {
       const abortcontroller = new AbortController()
       const result = await this.#session.handleCallTool(
-        convertedToolCall,
+        {
+          method: 'tools/call',
+          params: {
+            name,
+            arguments: input as any,
+          },
+        },
         { signal: abortcontroller.signal },
       )
 
       return {
-        tool_use_id: toolCallId,
+        tool_use_id: id,
         type: 'tool_result',
         content: Array.isArray(result.content)
           ? result.content.map(xs => {
@@ -152,7 +149,7 @@ export class Driver {
     } catch (err: any) {
       this.#logger.error(
         {
-          tool_use_id: toolCallId,
+          tool_use_id: id,
           name,
           error: err.message,
           stack: err.stack,
@@ -160,7 +157,7 @@ export class Driver {
         'tool use failed',
       )
       return {
-        tool_use_id: toolCallId,
+        tool_use_id: id,
         type: 'tool_result',
         content: err.toString(),
         is_error: true,
@@ -172,16 +169,11 @@ export class Driver {
     const { response, messages, index, status, toolCallIndex } = stage
     switch (status) {
       case 'pending': {
-        const tools = config.tools?.map(mcpxToolToAnthropic) || this.#tools
-        const tool_choice =
-          config.tool_choice ? { type: 'tool', name: config.tool_choice } : { type: 'auto' }
-
         let response: Anthropic.Messages.Message
         try {
           response = await this.#anthropic.messages.create({
+            ...(this.#tools.length ? { tools: this.#tools } : {}),
             ...config,
-            tools,
-            tool_choice,
             messages,
           }, requestOptions)
         } catch (err: any) {
@@ -221,58 +213,32 @@ export class Driver {
         return { response,  messages, index: messageIdx, status: 'ready' }
       }
       case 'input_wait': {
+        const toolUseCount = stage.toolCallIndex!
+        const submessageIdx = stage.submessageIdx!
+        const inputMessage = messages[index-1]
         const newMessage = messages[index]
+
+        // when status == 'input_wait' it is always a tool call,
+        // newMessage.content is always a ContentBlockParam[]
+        const submessage = inputMessage.content[submessageIdx] as ToolUseBlock
         const content = newMessage.content as ContentBlockParam[]
-        const { tool, submessageIdx, toolCallIndex, toolCallLength, toolCallId } =
-          this.parseNextToolCall(stage)
+        content.push(await this.call(submessage))
 
-        content.push(await this.call(tool, toolCallId!))
-
-        if (submessageIdx >= toolCallLength) {
+        const nextTool = toolUseCount + 1
+        const nextSubmessage = submessageIdx + 1
+        if (nextSubmessage >= inputMessage.content.length) {
           return { response, messages, index, status: 'pending' }
         } else {
-          return { response, messages, index, status: 'input_wait', toolCallIndex, submessageIdx }
+          return { response, messages, index, status: 'input_wait', toolCallIndex: nextTool, submessageIdx: nextSubmessage }
         }
+
       }
       default:
         throw new Error("Illegal status: " + status)
     }
   }
 
-  parseNextToolCall(stage: McpxAnthropicStage) {
-    const { status, messages, index } = stage
-    if (status !== 'input_wait') {
-      throw new Error("Cannot parse next tool call: invalid status " + status)
-    }
-    const toolUseCount = stage.toolCallIndex!
-    const submessageIdx = stage.submessageIdx!
-    const inputMessage = messages[index-1]
 
-    // when status == 'input_wait' it is always a tool call,
-    // newMessage.content is always a ContentBlockParam[]
-    const submessage = inputMessage.content[submessageIdx] as ToolUseBlock
-
-    const nextTool = toolUseCount + 1
-    const nextSubmessage = submessageIdx + 1
-
-    return {
-      tool: anthropicToolCallToMcpxToolCall(submessage),
-      toolCallIndex: nextTool,
-      toolCallLength: inputMessage.content.length,
-      submessageIdx: nextSubmessage,
-      toolCallId: submessage.id
-    }
-  }
-
-}
-
-function mcpxToolToAnthropic(tool: any) {
-  return {
-    // So, you're saying you folks write a lot of Python, eh? Well, it certainly doesn't show.
-    input_schema: tool.inputSchema,
-    name: tool.name,
-    description: tool.description,
-  }
 }
 
 /** Create a driver using an Anthropic client and MCPX Session options. */
@@ -296,7 +262,14 @@ export default async function createDriver(opts: DriverOptions) {
     anthropic,
     logger: logger || (session.logger as any) || pino({ level: 'silent' }),
     session,
-    tools: mcpTools.map(mcpxToolToAnthropic)
+    tools: mcpTools.map(tool => {
+      return {
+        // So, you're saying you folks write a lot of Python, eh? Well, it certainly doesn't show.
+        input_schema: tool.inputSchema,
+        name: tool.name,
+        description: tool.description,
+      }
+    })
   })
 }
 
