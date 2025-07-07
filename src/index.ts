@@ -218,20 +218,22 @@ export class Driver {
         const inputMessage = messages[index-1]
         const newMessage = messages[index]
 
-        // when status == 'input_wait' it is always a tool call,
-        // newMessage.content is always a ContentBlockParam[]
-        const submessage = inputMessage.content[submessageIdx] as ToolUseBlock
-        const content = newMessage.content as ContentBlockParam[]
-        content.push(await this.call(submessage))
-
-        const nextTool = toolUseCount + 1
-        const nextSubmessage = submessageIdx + 1
-        if (nextSubmessage >= inputMessage.content.length) {
-          return { response, messages, index, status: 'pending' }
-        } else {
-          return { response, messages, index, status: 'input_wait', toolCallIndex: nextTool, submessageIdx: nextSubmessage }
+        const results: Promise<ContentBlockParam>[] = [];
+        for (let i = submessageIdx; i < inputMessage.content.length; i++) {
+          // when status == 'input_wait' it is always a tool call,
+          // newMessage.content is always a ContentBlockParam[]
+          const toolUseBlock = inputMessage.content[submessageIdx] as ToolUseBlock
+          const promise = this.call(toolUseBlock)
+            .catch((err: any) => {
+              return {
+                text: err.toString(),
+                type: 'text',
+              } as ContentBlockParam
+            })
+          results.push(promise)
         }
-
+        await Promise.all(results).then(results => newMessage.content = results)
+        return { response, messages, index, status: 'pending' }
       }
       default:
         throw new Error("Illegal status: " + status)
