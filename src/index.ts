@@ -232,7 +232,7 @@ export class Driver {
             })
           results.push(promise)
         }
-        await Promise.all(results).then(results => newMessage.content = results)
+        newMessage.content = await Promise.all(results)
         return { response, messages, index, status: 'pending' }
       }
       default:
