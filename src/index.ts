@@ -214,12 +214,12 @@ export class Driver {
       }
       case 'input_wait': {
         const toolUseCount = stage.toolCallIndex!
-        const submessageIdx = stage.submessageIdx!
+        let submessageIdx = stage.submessageIdx!
         const inputMessage = messages[index-1]
         const newMessage = messages[index]
 
         const results: Promise<ContentBlockParam>[] = [];
-        for (let i = submessageIdx; i < inputMessage.content.length; i++) {
+        for (submessageIdx; submessageIdx < inputMessage.content.length; submessageIdx++) {
           // when status == 'input_wait' it is always a tool call,
           // newMessage.content is always a ContentBlockParam[]
           const toolUseBlock = inputMessage.content[submessageIdx] as ToolUseBlock
