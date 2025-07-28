@@ -166,6 +166,9 @@ export class Driver {
   }
 
   async next(stage: McpxAnthropicStage, config: any, requestOptions?: RequestOptions<unknown>): Promise<McpxAnthropicStage> {
+    const concurrentToolCalls = !!config['concurrent_tool_calls']
+    delete config['concurrent_tool_calls']
+
     const { response, messages, index, status, toolCallIndex } = stage
     switch (status) {
       case 'pending': {
@@ -215,25 +218,44 @@ export class Driver {
       case 'input_wait': {
         const toolUseCount = stage.toolCallIndex!
         let submessageIdx = stage.submessageIdx!
-        const inputMessage = messages[index-1]
+        const inputMessage = messages[index - 1]
         const newMessage = messages[index]
 
-        const results: Promise<ContentBlockParam>[] = [];
-        for (submessageIdx; submessageIdx < inputMessage.content.length; submessageIdx++) {
+        if (concurrentToolCalls) {
+          // Exhaust all tool calls in one turn
+          const results: Promise<ContentBlockParam>[] = [];
+          for (submessageIdx; submessageIdx < inputMessage.content.length; submessageIdx++) {
+            // when status == 'input_wait' it is always a tool call,
+            // newMessage.content is always a ContentBlockParam[]
+            const toolUseBlock = inputMessage.content[submessageIdx] as ToolUseBlock
+            const promise = this.call(toolUseBlock)
+              .catch((err: any) => {
+                return {
+                  text: err.toString(),
+                  type: 'text',
+                } as ContentBlockParam
+              })
+            results.push(promise)
+          }
+          newMessage.content = await Promise.all(results)
+          return { response, messages, index, status: 'pending' }
+        } else {
+          // Otherwise evaluate one tool call each turn.
+
           // when status == 'input_wait' it is always a tool call,
           // newMessage.content is always a ContentBlockParam[]
-          const toolUseBlock = inputMessage.content[submessageIdx] as ToolUseBlock
-          const promise = this.call(toolUseBlock)
-            .catch((err: any) => {
-              return {
-                text: err.toString(),
-                type: 'text',
-              } as ContentBlockParam
-            })
-          results.push(promise)
+          const submessage = inputMessage.content[submessageIdx] as ToolUseBlock
+          const content = newMessage.content as ContentBlockParam[]
+          content.push(await this.call(submessage))
+
+          const nextTool = toolUseCount + 1
+          const nextSubmessage = submessageIdx + 1
+          if (nextSubmessage >= inputMessage.content.length) {
+            return { response, messages, index, status: 'pending' }
+          } else {
+            return { response, messages, index, status: 'input_wait', toolCallIndex: nextTool, submessageIdx: nextSubmessage }
+          }
         }
-        newMessage.content = await Promise.all(results)
-        return { response, messages, index, status: 'pending' }
       }
       default:
         throw new Error("Illegal status: " + status)
